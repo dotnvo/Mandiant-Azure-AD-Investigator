@@ -146,7 +146,7 @@ function Invoke-MandiantAuditAzureADDomains {
                 }
 
                 $signing_cert_base64 = $federation_data.SigningCertificate
-                if ($signing_cert_base64 -ne $null) {
+                if ($null -ne $signing_cert_base64) {
                     $signing_cert = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Certificate2
                     $signing_cert.import([Convert]::FromBase64String($signing_cert_base64))
                     $signing_cert_subject = $signing_cert.Subject
@@ -166,7 +166,7 @@ function Invoke-MandiantAuditAzureADDomains {
                         Write-Host -Object $signing_cert.NotBefore -ForegroundColor Red
                     }
 
-                    if ($federation_data.NextSigningCertificate -ne $null) {
+                    if ($null -ne $federation_data.NextSigningCertificate) {
                         $next_signing_cert_base64 = $federation_data.NextSigningCertificate
                         $next_signing_cert = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Certificate2
                         $next_signing_cert.import([Convert]::FromBase64String($next_signing_cert_base64))
@@ -594,7 +594,7 @@ function Invoke-MandiantCheckAuditing {
         #Create hashtable of License SKU Info for lookup
         $skuLookup = @{}
         foreach ($sku in $skus.value) {
-            if (($sku.ServicePlans | Where-Object { $_.ServicePlanName -eq 'M365_ADVANCED_AUDITING' })) {
+            if (($sku.ServicePlans | Where-Object -Property ServicePlanName -eq 'M365_ADVANCED_AUDITING')) {
                 $advancedAuditingAvailable = $true
                 $provisioningStatus = ($sku.ServicePlans | Where-Object {
                         $_.ServicePlanName -eq 'M365_ADVANCED_AUDITING'
@@ -678,7 +678,7 @@ function Invoke-MandiantGetCSPInformation {
         }
         
         Write-Host -Object "Checking for partner groups in EXO Role Groups..." -ForegroundColor Green
-        $rg = Get-RoleGroup | ? Capabilities -match Partner_Managed | ? Members -match PartnerRoleGroup
+        $rg = Get-RoleGroup | Where-Object -property Capabilities -match Partner_Managed | Where-Object -property Members -match PartnerRoleGroup
         if ($rg)
         {
             Write-Host -Object "!! Identified Exchange Online Role Groups that contain partner groups" -ForegroundColor Yellow
@@ -729,10 +729,19 @@ function Invoke-MandiantAuditAzureADApplications {
         Try {
             Write-Host -Object "Checking for suspicious Azure AD App Registrations..." -ForegroundColor Green
             $apps = Get-AzureADApplication -All $True
-
+            $AccessPolicies = Get-ApplicationAccessPolicy
+    
+            
             $results = @()
             foreach ($App in $apps) {
                 Write-Verbose -Message "Application Name : $($app.DisplayName) :: $($App.id)"
+                $ApplicationAccessPolicy = $AccessPolicies | Where-Object {$_.AppID -eq $($AppID.id)}
+
+                if ($ApplicationAccessPolicy) {
+                    $HasApplicationAccessPolicy = $true
+                } else {
+                    $HasApplicationAccessPolicy = $false
+                }
                 if ($App.PasswordCredentials.Count -ne 0 -or $App.KeyCredentials.Count -ne 0) {
                     $hit = $false
                     foreach ($permission in $App.RequiredResourceAccess) {
@@ -743,7 +752,7 @@ function Invoke-MandiantAuditAzureADApplications {
                             Write-Verbose -Message "Category :: $category"
                             $risky = $defs.$resource_id.$category.PSObject.Properties.Name
                             $res = Compare-Object -ReferenceObject $risky -DifferenceObject $requiredRoles -PassThru -IncludeEqual -ExcludeDifferent
-                            if ($res -ne $null) {
+                            if ($null -ne $res) {
                                 $Permissions = Get-ApplicationPermissions -App $App -Permissions $defs
                                 
                                 $results += [PSCustomObject]@{
@@ -753,6 +762,11 @@ function Invoke-MandiantAuditAzureADApplications {
                                     'Key Credentials'      = ($App.KeyCredentials | Out-String)
                                     'Password Credentials' = ($App.PasswordCredentials | Out-String)
                                     'Risky Permissions'    = ($Permissions | Out-String)
+                                    "Application Access Policy" = $HasApplicationAccessPolicy
+                                    "Application Access Policy Identity" = $ApplicationAccessPolicy.Identity
+                                    "Application Access Policy Scope Name" = $ApplicationAccessPolicy.ScopeName
+                                    "Application Access Policy AccessRight" = $ApplicationAccessPolicy.AccessRight
+                                    "Application Access Policy Description" = $ApplicationAccessPolicy.Description
                                 }
                             
                                 $hit = $True
@@ -850,8 +864,7 @@ function Connect-MandiantAzureEnvironment {
 }
 
 
-function Get-MandiantUnc2452AuditLogs
-{
+function Get-MandiantUnc2452AuditLogs {
     Param(
         [Parameter(Mandatory = $true)]
         $OutputPath
@@ -896,8 +909,7 @@ function Get-MandiantUnc2452AuditLogs
     }
 }
 
-function Get-MandiantApplicationImpersonationHolders
-{
+function Get-MandiantApplicationImpersonationHolders {
     Param(
         [Parameter(Mandatory = $true)]
         $OutputPath
@@ -909,7 +921,7 @@ function Get-MandiantApplicationImpersonationHolders
         }
         Write-Host -Object "Auditing ApplicationImpersonation role holders..." -ForegroundColor Green
         Write-Host -Object "Results are written to application_impersonation_holders.csv. If the file is empty, then no users or groups hold this role." -ForegroundColor Green
-        $AppImperGroups = Get-RoleGroup | Where-Object Roles -like ApplicationImpersonation
+        $AppImperGroups = Get-RoleGroup | Where-Object -Property Roles -like ApplicationImpersonation
         ForEach ($Group in $AppImperGroups){
             Get-RoleGroupMember $Group.Name | Export-Csv -NoTypeInformation -Append -Path $(Join-Path -Path $OutputPath -ChildPath "application_impersonation_holders.csv")
         }       
@@ -919,8 +931,7 @@ function Get-MandiantApplicationImpersonationHolders
         break
     }
 }
-function Get-MandiantMailboxFolderPermissions
-{
+function Get-MandiantMailboxFolderPermissions {
     Param(
         [Parameter(Mandatory = $true)]
         $OutputPath
@@ -968,8 +979,7 @@ function Get-MandiantMailboxFolderPermissions
         break
     }
 }
-function Invoke-MandiantAllChecks
-{
+function Invoke-MandiantAllChecks {
     Param(
         [Parameter(Mandatory = $true)]
         $OutputPath
